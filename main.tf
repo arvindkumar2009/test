@@ -45,7 +45,7 @@ module "kinesis_firehose_stream" {
     
     application_prefix              = var.application_prefix
     environment                     = var.environment
-    iam_boundary_policy             = var.iam_boundary_policy
+    #iam_boundary_policy             = var.iam_boundary_policy
     
     # Kinesis firehose
     kinesis_firehose_stream_name    = "${var.application_prefix}-kinesis-firehose-${var.environment}"
@@ -254,6 +254,253 @@ module "lambda_function_sqs_processor" {
         sdlc_env_tag            = var.sdlc_env_tag
 
 }
+
+### Lambda will trigger as soon as record would available in ddb stream.
+module "lambda_function_stream_ddb" {
+
+    source                          = "../../../../../../modules/compute/lambda"
+    
+    application_prefix              = var.application_prefix
+    environment                     = var.environment
+    iam_boundary_policy             = var.iam_boundary_policy
+
+    # Lambda Function for DDB Data Stream
+    stream_as_source_to_lambda_ddb      = var.stream_as_source_to_lambda_ddb
+    ddb_stream_arn                     = var.dynamo_db_table_stream
+    kinesis_stream_name                = module.kinesis_data_stream.kinesis_stream_name
+
+
+    lambda_s3_bucket_name           = var.lambda_s3_bucket_name_ddb
+    lambda_s3_bucket_key            = var.lambda_s3_bucket_key_ddb
+    lambda_function_file_name       = var.lambda_function_file_name_ddb
+    lambda_function_handler_name    = var.lambda_function_handler_name_ddb
+    lambda_function_source_name     = var.lambda_function_source_name_ddb
+    lambda_function_name            = "${var.application_prefix}-${var.lambda_function_source_name_ddb}-processor-${var.environment}"
+    lambda_function_description     = var.lambda_function_description_ddb
+
+    # Secrets
+    lambda_secrets_access           = "true"
+    secret_arn                      = module.dynamodb_pii_data_secrets.secret_arn
+
+    # Environment Variables for Lambda
+    lambda_environment = {
+        variables = merge(
+                        {
+                           
+                           DDB_STREAM_TRANSACTION_TBL_NAME      = module.dynamodb_table_stream.dynamodb_table_name
+                           DDB_BATCH_TRANSCATION_TBL_NAME       = module.dynamodb_table_batch.dynamodb_table_name
+                           SECRET_MANAGER_SECRET_ID             = module.dynamodb_pii_data_secrets.secret_name
+                           KINESIS_STREAM_NAME                  = module.kinesis_data_stream.kinesis_stream_name
+                        },
+                        var.lambda_env_variables_ddb
+                    ) 
+    }  
+  
+    # Dead Letter Config - SQS
+    dlq_target_sqs                  = "true"
+    target_sqs_arn                  = [module.lamdba_sqs_dl_queue.sqs_queue_arn] # For IAM Role
+    
+    
+    # SNS integration
+    dlq_target_sns                  = "true"
+    target_sns_arn                  = [module.sns_topic.sns_topic_arn] # For IAM Role
+
+    # Dynamo DB Integration
+    ddb_as_destination              = "true"
+    dynamo_db_arn                   =  [
+                                        module.dynamodb_table_stream.dynamodb_table_arn ,
+                                        module.dynamodb_table_batch.dynamodb_table_arn ,
+                                        module.dynamodb_table_metadata.dynamodb_table_arn 
+                                    ]
+    
+    # Runtime Configuration
+    lambda_memory_size_mb           = var.lambda_memory_size_mb
+    lambda_runtime_engine           = var.lambda_runtime_engine
+    lambda_timeout_secs             = var.lambda_timeout_secs
+    lambda_reserved_conc_execs      = var.lambda_reserved_conc_execs
+    
+    # Tags (ALL Lowercase!)
+        # Specific to EC2 Resource
+        name_tag                = var.name_tag
+        costcenter_tag          = var.costcenter_tag
+        projectname_tag         = var.projectname_tag
+        application_group_tag   = var.application_group_tag
+        application_tag         = var.application_tag
+        component_type_tag      = var.component_type_tag
+	    iac_tag			        = var.iac_tag
+        tier_tag                = var.tier_tag
+        environment_tag         = var.environment_tag
+        sdlc_env_tag            = var.sdlc_env_tag
+
+}
+
+### Lambda will trigger as soon as sent transaction file available under “fulfilment-sent-transactions” prefix under environment specific S3 bucket.
+module "lambda_function_s3_processor" {
+
+    source                          = "../../../../../../modules/compute/lambda"
+    
+    application_prefix              = var.application_prefix
+    environment                     = var.environment
+    iam_boundary_policy             = var.iam_boundary_policy
+
+    # Lambda Function for Kinesis Data Stream
+    stream_as_source_to_lambda      = var.stream_as_source_to_lambda_sqs
+    kinesis_stream_arn              = module.kinesis_data_stream.kinesis_stream_arn
+    kinesis_stream_name             = module.kinesis_data_stream.kinesis_stream_name
+
+    # Encryption for Stream  
+    server_side_encryption_enabled  = var.server_side_encryption_enabled
+    stream_kms_key_arn              = data.aws_kms_key.kms_key[0].arn
+
+
+    lambda_s3_bucket_name           = var.lambda_s3_bucket_name_sqs
+    lambda_s3_bucket_key            = var.lambda_s3_bucket_key_sqs
+    lambda_function_file_name       = var.lambda_function_file_name_sqs
+    lambda_function_handler_name    = var.lambda_function_handler_name_sqs
+    lambda_function_source_name     = var.lambda_function_source_name_sqs
+    lambda_function_name            = "${var.application_prefix}-${var.lambda_function_source_name_sqs}-processor-${var.environment}"
+    lambda_function_description     = var.lambda_function_description_sqs
+
+    # Secrets
+    lambda_secrets_access           = "true"
+    secret_arn                      = module.dynamodb_pii_data_secrets.secret_arn
+
+    # Environment Variables for Lambda
+    lambda_environment = {
+        variables = merge(
+                        {
+                           
+                           DDB_STREAM_TRANSACTION_TBL_NAME      = module.dynamodb_table_stream.dynamodb_table_name
+                           DDB_BATCH_TRANSCATION_TBL_NAME       = module.dynamodb_table_batch.dynamodb_table_name
+                           SECRET_MANAGER_SECRET_ID             = module.dynamodb_pii_data_secrets.secret_name
+                           KINESIS_STREAM_NAME                  = module.kinesis_data_stream.kinesis_stream_name
+                        },
+                        var.lambda_env_variables_sqs
+                    ) 
+    }  
+  
+    # Dead Letter Config - SQS
+    dlq_target_sqs                  = "true"
+    target_sqs_arn                  = [module.lamdba_sqs_dl_queue.sqs_queue_arn] # For IAM Role
+    
+
+    # # DO NOT need another DLQ as this Lambda is processing Kinesis Lambda DLQ
+    # dl_target                       = {
+    #     target_arn                  = module.lamdba_sqs_dl_queue.sqs_queue_arn
+    # }
+
+    # SNS integration
+    dlq_target_sns                  = "true"
+    target_sns_arn                  = [module.sns_topic.sns_topic_arn] # For IAM Role
+
+    # Dynamo DB Integration
+    ddb_as_destination              = "true"
+    dynamo_db_arn                   =  [
+                                        module.dynamodb_table_stream.dynamodb_table_arn ,
+                                        module.dynamodb_table_batch.dynamodb_table_arn ,
+                                        module.dynamodb_table_metadata.dynamodb_table_arn 
+                                    ]
+    
+    # Runtime Configuration
+    lambda_memory_size_mb           = var.lambda_memory_size_mb_sqs
+    lambda_runtime_engine           = var.lambda_runtime_engine_sqs
+    lambda_timeout_secs             = var.lambda_timeout_secs_sqs
+    lambda_reserved_conc_execs      = var.lambda_reserved_conc_execs_sqs
+    
+    # Tags (ALL Lowercase!)
+        # Specific to EC2 Resource
+        name_tag                = var.name_tag
+        costcenter_tag          = var.costcenter_tag
+        projectname_tag         = var.projectname_tag
+        application_group_tag   = var.application_group_tag
+        application_tag         = var.application_tag
+        component_type_tag      = var.component_type_tag
+	    iac_tag			= var.iac_tag
+        tier_tag                = var.tier_tag
+        environment_tag         = var.environment_tag
+        sdlc_env_tag            = var.sdlc_env_tag
+
+}
+
+### Lambda will trigger as soon as message available in sqs “generale-ledger-failed-tranaction-sqs” for respective environment
+module "lambda_function_sqs2_processor" {
+
+    source                          = "../../../../../../modules/compute/lambda"
+    
+    application_prefix              = var.application_prefix
+    environment                     = var.environment
+    iam_boundary_policy             = var.iam_boundary_policy
+
+    
+    lambda_s3_bucket_name           = var.lambda_s3_bucket_name_sqs2
+    lambda_s3_bucket_key            = var.lambda_s3_bucket_key_sqs2
+    lambda_function_file_name       = var.lambda_function_file_name_sqs2
+    lambda_function_handler_name    = var.lambda_function_handler_name_sqs2
+    lambda_function_source_name     = var.lambda_function_source_name_sqs2
+    lambda_function_name            = "${var.application_prefix}-${var.lambda_function_source_name_sqs2}-processor-${var.environment}"
+    lambda_function_description     = var.lambda_function_description_sqs2
+
+    # Secrets
+    lambda_secrets_access           = "true"
+    secret_arn                      = module.dynamodb_pii_data_secrets.secret_arn
+
+    # Environment Variables for Lambda
+    lambda_environment = {
+        variables = merge(
+                        {
+                           
+                           DDB_STREAM_TRANSACTION_TBL_NAME      = module.dynamodb_table_stream.dynamodb_table_name
+                           DDB_BATCH_TRANSCATION_TBL_NAME       = module.dynamodb_table_batch.dynamodb_table_name
+                           SECRET_MANAGER_SECRET_ID             = module.dynamodb_pii_data_secrets.secret_name
+                           KINESIS_STREAM_NAME                  = module.kinesis_data_stream.kinesis_stream_name
+                        },
+                        var.lambda_env_variables_sqs2
+                    ) 
+    }  
+  
+    # Dead Letter Config - SQS
+    dlq_target_sqs                  = "true"
+    target_sqs_arn                  = [module.lamdba_sqs_dl_queue.sqs_queue_arn] # For IAM Role
+    
+
+    # # DO NOT need another DLQ as this Lambda is processing Kinesis Lambda DLQ
+    # dl_target                       = {
+    #     target_arn                  = module.lamdba_sqs_dl_queue.sqs_queue_arn
+    # }
+
+    # SNS integration
+    dlq_target_sns                  = "true"
+    target_sns_arn                  = [module.sns_topic.sns_topic_arn] # For IAM Role
+
+    # Dynamo DB Integration
+    ddb_as_destination              = "true"
+    dynamo_db_arn                   =  [
+                                        module.dynamodb_table_stream.dynamodb_table_arn ,
+                                        module.dynamodb_table_batch.dynamodb_table_arn ,
+                                        module.dynamodb_table_metadata.dynamodb_table_arn 
+                                    ]
+    
+    # Runtime Configuration
+    lambda_memory_size_mb           = var.lambda_memory_size_mb_sqs
+    lambda_runtime_engine           = var.lambda_runtime_engine_sqs
+    lambda_timeout_secs             = var.lambda_timeout_secs_sqs
+    lambda_reserved_conc_execs      = var.lambda_reserved_conc_execs_sqs
+    
+    # Tags (ALL Lowercase!)
+        # Specific to EC2 Resource
+        name_tag                = var.name_tag
+        costcenter_tag          = var.costcenter_tag
+        projectname_tag         = var.projectname_tag
+        application_group_tag   = var.application_group_tag
+        application_tag         = var.application_tag
+        component_type_tag      = var.component_type_tag
+	    iac_tag			        = var.iac_tag
+        tier_tag                = var.tier_tag
+        environment_tag         = var.environment_tag
+        sdlc_env_tag            = var.sdlc_env_tag
+
+}
+
 
 
 module "dynamodb_table_stream" {
@@ -481,62 +728,62 @@ module "sns_topic" {
         sdlc_env_tag            = var.sdlc_env_tag
 }
 
-module "glue_crawler" {
+# module "glue_crawler" {
 
-    source                          = "../../../../../../modules/analytics/glue/glue_crawler"
+#     source                          = "../../../../../../modules/analytics/glue/glue_crawler"
     
-    application_prefix              = var.application_prefix
-    environment                     = var.environment
-    iam_boundary_policy             = var.iam_boundary_policy
+#     application_prefix              = var.application_prefix
+#     environment                     = var.environment
+#     iam_boundary_policy             = var.iam_boundary_policy
         
-    # Glue Crawler 
+#     # Glue Crawler 
    
-    glue_crawler_name                   = var.glue_crawler_name 
-    glue_crawler_database_name           = var.glue_crawler_database_name
-    glue_crawler_role                    = var.glue_crawler_role
+#     glue_crawler_name                   = var.glue_crawler_name 
+#     glue_crawler_database_name           = var.glue_crawler_database_name
+#     glue_crawler_role                    = var.glue_crawler_role
 
-    glue_crawler_description             = var.glue_crawler_description
-    #glue_crawler_classifiersclassifiers  = var.glue_crawler_classifiers
-    glue_crawler_configuration           = var.glue_crawler_configuration
-    glue_crawler_schedule                = var.glue_crawler_schedule
-    #glue_crawler_security_configuration  = var.glue_crawler_security_configuration 
-    glue_crawler_table_prefix            = var.glue_crawler_table_prefix
-
-
+#     glue_crawler_description             = var.glue_crawler_description
+#     #glue_crawler_classifiersclassifiers  = var.glue_crawler_classifiers
+#     glue_crawler_configuration           = var.glue_crawler_configuration
+#     glue_crawler_schedule                = var.glue_crawler_schedule
+#     #glue_crawler_security_configuration  = var.glue_crawler_security_configuration 
+#     glue_crawler_table_prefix            = var.glue_crawler_table_prefix
 
 
 
- dynamic "catalog_target" {
-        iterator = catalog_target
-        for_each = length(var.glue_crawler_catalog_target) >0 ? [var.glue_crawler_catalog_target] : []
-        content {
-            database_name = lookup(catalog_target.value, "database_name", element(concat(aws_glue_catalog_database.glue_catalog_database.*.id, [""]), 0))
-            tables        = lookup(catalog_target.value, "tables", element(concat(aws_glue_catalog_table.glue_catalog_table.*.id, [""]), 0))
-        }
-    }
 
-    dynamic "schema_change_policy" {
-        iterator = schema_change_policy
-        for_each = var.glue_crawler_schema_change_policy
-        content {
-            delete_behavior = lookup(schema_change_policy.value, "delete_behavior", "DEPRECATE_IN_DATABASE")
-            update_behavior = lookup(schema_change_policy.value, "update_behavior", "UPDATE_IN_DATABASE")
-        }
-    }
 
-# Tags (ALL Lowercase!)
-        # Specific to EC2 Resource
-        name_tag                = var.name_tag
-        costcenter_tag          = var.costcenter_tag
-        projectname_tag         = var.projectname_tag
-        application_group_tag   = var.application_group_tag
-        application_tag         = var.application_tag
-        component_type_tag      = var.component_type_tag
-	    iac_tag			        = var.iac_tag
-        tier_tag                = var.tier_tag
-        environment_tag         = var.environment_tag
-        sdlc_env_tag            = var.sdlc_env_tag
-}
+#  dynamic "catalog_target" {
+#         iterator = catalog_target
+#         for_each = length(var.glue_crawler_catalog_target) >0 ? [var.glue_crawler_catalog_target] : []
+#         content {
+#             database_name = lookup(catalog_target.value, "database_name", element(concat(aws_glue_catalog_database.glue_catalog_database.*.id, [""]), 0))
+#             tables        = lookup(catalog_target.value, "tables", element(concat(aws_glue_catalog_table.glue_catalog_table.*.id, [""]), 0))
+#         }
+#     }
+
+#     dynamic "schema_change_policy" {
+#         iterator = schema_change_policy
+#         for_each = var.glue_crawler_schema_change_policy
+#         content {
+#             delete_behavior = lookup(schema_change_policy.value, "delete_behavior", "DEPRECATE_IN_DATABASE")
+#             update_behavior = lookup(schema_change_policy.value, "update_behavior", "UPDATE_IN_DATABASE")
+#         }
+#     }
+
+# # Tags (ALL Lowercase!)
+#         # Specific to EC2 Resource
+#         name_tag                = var.name_tag
+#         costcenter_tag          = var.costcenter_tag
+#         projectname_tag         = var.projectname_tag
+#         application_group_tag   = var.application_group_tag
+#         application_tag         = var.application_tag
+#         component_type_tag      = var.component_type_tag
+# 	    iac_tag			        = var.iac_tag
+#         tier_tag                = var.tier_tag
+#         environment_tag         = var.environment_tag
+#         sdlc_env_tag            = var.sdlc_env_tag
+# }
 
 # Secrets for DynamoDB PII data encryption/decryption
 module "dynamodb_pii_data_secrets" {
